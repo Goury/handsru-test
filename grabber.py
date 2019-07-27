@@ -35,6 +35,20 @@ class Threadmill(threading.Thread):
 		return self._return
 
 
+def grab_phone_numbers_threading (region=REGION, number_format=NUMBER_FORMAT, replacers=REPLACERS, urls=URLS, tesseract=False):
+	result = set()
+	threads = []
+	for url in urls:
+		t = Threadmill(target=grabbing_thread, kwargs={'url':url, 'region':region, 'number_format':number_format, 'replacers':replacers, 'tesseract': tesseract})
+		threads.append(t)
+		t.start()
+	for t in threads:
+		data = t.join()
+		for item in data:
+			result.add(item)
+	return result
+
+
 def grabbing_thread (url, region, number_format, replacers, tesseract=False):
 	driver = _set_up()
 	print('[{}] grabbing in progress...'.format(url))
@@ -85,20 +99,6 @@ def format_entry (data, number_format, replacers):
 	result = phonenumbers.format_number(data.number, number_format)
 	for replacer in replacers:
 		result = result.replace(replacer[0], replacer[1])
-	return result
-
-
-def grab_phone_numbers_threading (region=REGION, number_format=NUMBER_FORMAT, replacers=REPLACERS, urls=URLS, tesseract=False):
-	result = set()
-	threads = []
-	for url in urls:
-		t = Threadmill(target=grabbing_thread, kwargs={'url':url, 'region':region, 'number_format':number_format, 'replacers':replacers, 'tesseract': tesseract})
-		threads.append(t)
-		t.start()
-	for t in threads:
-		data = t.join()
-		for item in data:
-			result.add(item)
 	return result
 
 
