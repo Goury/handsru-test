@@ -1,13 +1,15 @@
+import argparse
 import cv2
 import os
 from PIL import Image
 import phonenumbers
 import pytesseract
 from selenium import webdriver
+import threading
+import uuid
 
-SCREENSHOT = './scr.png'
-OCR_1 = './scr-ocr-1.png'
-OCR_2 = './scr-ocr-2.png'
+
+SCREENSHOT_PATH = './'
 REGION = 'RU'
 NUMBER_FORMAT = phonenumbers.PhoneNumberFormat.E164
 REPLACERS = [
@@ -17,6 +19,44 @@ URLS = [
 	'https://hands.ru/company/about',
 	'https://repetitors.info',
 ]
+
+
+class Threadmill(threading.Thread):
+	def __init__(self, group=None, target=None, name=None, args=(), kwargs={}, Verbose=None):
+		threading.Thread.__init__(self, group, target, name, args, kwargs)
+		self._return = None
+
+	def run(self):
+		if self._target is not None:
+			self._return = self._target(*self._args, **self._kwargs)
+
+	def join(self, *args):
+		threading.Thread.join(self, *args)
+		return self._return
+
+
+def grabbing_thread (url, region, number_format, replacers, tesseract=False):
+	driver = _set_up()
+	print('[{}] grabbing in progress...'.format(url))
+
+	thread_id = str(uuid.uuid4())
+	driver.get(url)
+	text0 = driver.page_source
+	if tesseract:
+		ss0, ss1, ss2 = _screenshot_paths(thread_id)
+		total_screenshot(driver, ss0)
+		text1, text2 = ocr(ss0, ss1, ss2)
+	else:
+		text1, text2 = ('', '')
+
+	_tear_down(driver, thread_id, tesseract)
+
+	result = set()
+	for text in (text0, text1, text2):
+		for match in phonenumbers.PhoneNumberMatcher(text, region):
+			result.add(format_entry(match, number_format, replacers))
+
+	return result
 
 
 def total_screenshot (driver, path):
@@ -29,15 +69,15 @@ def total_screenshot (driver, path):
 	driver.set_window_size(original_size['width'], original_size['height'])
 
 
-def ocr (path):
-	image = cv2.imread(path)
+def ocr (path0, path1, path2):
+	image = cv2.imread(path0)
 	gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 	ocr_1 = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
 	ocr_2 = cv2.medianBlur(gray, 1)
-	cv2.imwrite(OCR_1, ocr_1)
-	cv2.imwrite(OCR_2, ocr_2)
-	text1 = pytesseract.image_to_string(Image.open(OCR_1))
-	text2 = pytesseract.image_to_string(Image.open(OCR_2))
+	cv2.imwrite(path1, ocr_1)
+	cv2.imwrite(path2, ocr_2)
+	text1 = pytesseract.image_to_string(Image.open(path1))
+	text2 = pytesseract.image_to_string(Image.open(path2))
 	return(text1, text2)
 
 
@@ -48,19 +88,25 @@ def format_entry (data, number_format, replacers):
 	return result
 
 
-def grab_phone_numbers (region=REGION, number_format=NUMBER_FORMAT, replacers=REPLACERS, urls=URLS):
+def grab_phone_numbers_threading (region=REGION, number_format=NUMBER_FORMAT, replacers=REPLACERS, urls=URLS, tesseract=False):
 	result = set()
+	threads = []
 	for url in urls:
-		print('[{}] grabbing in progress...'.format(url))
-		driver.get(url)
-		total_screenshot(driver, SCREENSHOT)
-		text0 = driver.page_source
-		text1, text2 = ocr(SCREENSHOT)
-		for text in (text0, text1, text2):
-			for match in phonenumbers.PhoneNumberMatcher(text, region):
-				result.add(format_entry(match, number_format, replacers))
-
+		t = Threadmill(target=grabbing_thread, kwargs={'url':url, 'region':region, 'number_format':number_format, 'replacers':replacers, 'tesseract': tesseract})
+		threads.append(t)
+		t.start()
+	for t in threads:
+		data = t.join()
+		for item in data:
+			result.add(item)
 	return result
+
+
+def _screenshot_paths (thread_id):
+	screenshot_path0 = os.path.join( SCREENSHOT_PATH, '{}.png'.format(thread_id) )
+	screenshot_path1 = os.path.join( SCREENSHOT_PATH, '{}-ocr1.png'.format(thread_id) )
+	screenshot_path2 = os.path.join( SCREENSHOT_PATH, '{}-ocr2.png'.format(thread_id) )
+	return (screenshot_path0, screenshot_path1, screenshot_path2)
 
 
 def _set_up ():
@@ -71,16 +117,26 @@ def _set_up ():
 	return driver
 
 
-def _tear_down (driver):
+def _tear_down (driver, thread_id, tesseract):
 	driver.close()
-	os.remove(OCR_1)
-	os.remove(OCR_2)
-	os.remove(SCREENSHOT)
+	if tesseract:
+		ss0, ss1, ss2 = _screenshot_paths(thread_id)
+		os.remove(ss0)
+		os.remove(ss1)
+		os.remove(ss2)
 
 
 if __name__ == '__main__':
-	driver = _set_up()
-	database = grab_phone_numbers()
-	_tear_down(driver)
+	ap = argparse.ArgumentParser()
+	ap.add_argument("-t", "--tesseract", help="enable Tesseract OCR processing", action="store_true")
+	args = ap.parse_args()
+	if args.tesseract:
+		print('Tesseract processing is enabled')
+		tesseract = True
+	else:
+		print('Tesseract processing is not enabled')
+		tesseract = False
+
+	database = grab_phone_numbers_threading(tesseract=tesseract)
 	for entry in database:
 		print(entry)
