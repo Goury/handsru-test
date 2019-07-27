@@ -1,9 +1,6 @@
 import argparse
-import cv2
 import os
-from PIL import Image
 import phonenumbers
-import pytesseract
 from selenium import webdriver
 import threading
 import uuid
@@ -131,6 +128,9 @@ if __name__ == '__main__':
 	ap.add_argument("-t", "--tesseract", help="enable Tesseract OCR processing", action="store_true")
 	args = ap.parse_args()
 	if args.tesseract:
+		import cv2
+		from PIL import Image
+		import pytesseract
 		print('Tesseract processing is enabled')
 		tesseract = True
 	else:
