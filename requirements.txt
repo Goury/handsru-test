@@ -1,4 +1,4 @@
-opencv-python==4.1.0.25
+opencv-python==4.2.0.32
 phonenumbers==8.10.15
 Pillow==6.1.0
 pytesseract==0.2.7
